@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>뉴스 애그리게이터</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <h1>📰 뉴스피드</h1>
+        <button id="btn-refresh" class="icon-btn" title="전체 새로고침">↻</button>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-label">전체</div>
+        <button class="nav-item active" data-filter="all">
+          <span>📋 모든 뉴스</span>
+          <span id="badge-all" class="badge"></span>
+        </button>
+        <button class="nav-item" data-filter="unread">
+          <span>🔵 읽지 않음</span>
+          <span id="badge-unread" class="badge"></span>
+        </button>
+        <button class="nav-item" data-filter="bookmarked">
+          <span>⭐ 북마크</span>
+          <span id="badge-bookmarked" class="badge"></span>
+        </button>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-label">카테고리</div>
+        <div id="category-list"></div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-label">소스</div>
+        <div id="source-list"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button id="btn-admin" class="outline-btn">⚙️ 관리</button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main id="main">
+      <div id="toolbar">
+        <div id="search-wrap">
+          <input type="search" id="search-input" placeholder="제목, 내용 검색..." />
+        </div>
+        <div id="toolbar-actions">
+          <button id="btn-mark-read" class="outline-btn sm">모두 읽음</button>
+          <span id="refresh-status"></span>
+        </div>
+      </div>
+
+      <div id="articles-header">
+        <span id="articles-count"></span>
+      </div>
+
+      <div id="articles-grid"></div>
+      <div id="pagination"></div>
+    </main>
+
+    <!-- Admin modal -->
+    <div id="modal-admin" class="modal hidden">
+      <div class="modal-backdrop" id="modal-backdrop"></div>
+      <div class="modal-box">
+        <div class="modal-header">
+          <h2>⚙️ 뉴스 소스 관리</h2>
+          <button class="close-btn" id="btn-close-admin">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- Add source form -->
+          <div class="card">
+            <h3>새 소스 추가</h3>
+            <div class="form-row">
+              <input type="text" id="new-source-name" placeholder="소스 이름 (예: 조선일보)" />
+              <input type="url" id="new-source-url" placeholder="RSS URL" />
+              <select id="new-source-category">
+                <option value="종합">종합</option>
+                <option value="IT/기술">IT/기술</option>
+                <option value="경제">경제</option>
+                <option value="정치/사회">정치/사회</option>
+                <option value="해외">해외</option>
+                <option value="스포츠">스포츠</option>
+                <option value="문화/연예">문화/연예</option>
+                <option value="기타">기타</option>
+              </select>
+              <button id="btn-add-source" class="primary-btn">추가</button>
+            </div>
+          </div>
+
+          <!-- Sources table -->
+          <div class="card">
+            <div class="card-header-row">
+              <h3>등록된 소스</h3>
+              <div>
+                <button id="btn-fetch-all" class="outline-btn sm">전체 가져오기</button>
+                <button id="btn-cleanup" class="danger-btn sm">30일 이상 삭제</button>
+              </div>
+            </div>
+            <div id="sources-table-wrap">
+              <table id="sources-table">
+                <thead>
+                  <tr>
+                    <th>이름</th>
+                    <th>카테고리</th>
+                    <th>마지막 수집</th>
+                    <th>활성</th>
+                    <th>작업</th>
+                  </tr>
+                </thead>
+                <tbody id="sources-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Article detail modal -->
+    <div id="modal-article" class="modal hidden">
+      <div class="modal-backdrop" id="article-backdrop"></div>
+      <div class="modal-box article-box">
+        <div class="modal-header">
+          <h2 id="detail-title"></h2>
+          <button class="close-btn" id="btn-close-article">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="detail-meta"></div>
+          <div id="detail-summary"></div>
+          <div id="detail-note-section">
+            <label>메모</label>
+            <textarea id="detail-note" placeholder="이 기사에 대한 메모를 남기세요..."></textarea>
+            <button id="btn-save-note" class="primary-btn sm">메모 저장</button>
+          </div>
+          <div id="detail-actions">
+            <a id="detail-link" href="#" target="_blank" rel="noopener" class="primary-btn">원문 보기 →</a>
+            <button id="detail-bookmark" class="outline-btn">⭐ 북마크</button>
+            <button id="detail-hide" class="danger-btn sm">숨기기</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast"></div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
