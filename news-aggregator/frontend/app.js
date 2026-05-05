@@ -3,7 +3,7 @@ const API = "";  // same origin; change to http://localhost:8000 for dev
 
 /* ─── State ─────────────────────────────────────────────────────────── */
 const state = {
-  filter: "all",       // "all" | "unread" | "bookmarked" | category:X | source:X
+  filter: "all",
   search: "",
   page: 1,
   perPage: 30,
@@ -12,6 +12,7 @@ const state = {
   categories: [],
   currentArticleId: null,
   searchTimer: null,
+  articleCache: new Map(),  // id → article object (url, note, dates, source 등 보존)
 };
 
 /* ─── Utils ─────────────────────────────────────────────────────────── */
@@ -38,14 +39,14 @@ function toast(msg, type = "info") {
 
 function fmtDate(iso) {
   if (!iso) return "";
-  const d = new Date(iso);
+  const d = new Date(iso + (iso.endsWith("Z") ? "" : "Z"));  // UTC 보정
   const now = new Date();
   const diff = (now - d) / 1000;
   if (diff < 60) return "방금";
   if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
   if (diff < 604800) return `${Math.floor(diff / 86400)}일 전`;
-  return d.toLocaleDateString("ko-KR");
+  return d.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
 }
 
 function esc(str) {
@@ -81,12 +82,10 @@ async function loadSources() {
 function buildArticleParams() {
   const params = new URLSearchParams({ page: state.page, per_page: state.perPage });
   if (state.search) params.set("search", state.search);
-
   if (state.filter === "unread") params.set("unread", "true");
   else if (state.filter === "bookmarked") params.set("bookmarked", "true");
   else if (state.filter.startsWith("category:")) params.set("category", state.filter.slice(9));
   else if (state.filter.startsWith("source:")) params.set("source_id", state.filter.slice(7));
-
   return params;
 }
 
@@ -95,6 +94,12 @@ async function loadArticles() {
   grid.innerHTML = `<div class="empty-state"><div class="emoji">⏳</div><p>불러오는 중...</p></div>`;
 
   const data = await api(`/api/articles?${buildArticleParams()}`);
+
+  // 캐시 갱신 — 이 페이지의 기사들을 최신 상태로 저장
+  for (const a of data.articles) {
+    state.articleCache.set(a.id, a);
+  }
+
   renderArticleGrid(data);
   renderPagination(data);
   document.getElementById("articles-count").textContent =
@@ -104,8 +109,7 @@ async function loadArticles() {
 /* ─── Render helpers ────────────────────────────────────────────────── */
 function renderCategories() {
   const el = document.getElementById("category-list");
-  const { stats } = state;
-  const catMap = Object.fromEntries((stats.categories || []).map(c => [c.category, c.count]));
+  const catMap = Object.fromEntries((state.stats.categories || []).map(c => [c.category, c.count]));
 
   el.innerHTML = state.categories.map(cat => `
     <button class="nav-item ${state.filter === `category:${cat}` ? "active" : ""}"
@@ -115,9 +119,9 @@ function renderCategories() {
     </button>
   `).join("");
 
-  el.querySelectorAll(".nav-item").forEach(btn => btn.addEventListener("click", () => {
-    setFilter(btn.dataset.filter);
-  }));
+  el.querySelectorAll(".nav-item").forEach(btn =>
+    btn.addEventListener("click", () => setFilter(btn.dataset.filter))
+  );
 }
 
 function renderSources() {
@@ -129,9 +133,9 @@ function renderSources() {
     </button>
   `).join("");
 
-  el.querySelectorAll(".nav-item").forEach(btn => btn.addEventListener("click", () => {
-    setFilter(btn.dataset.filter);
-  }));
+  el.querySelectorAll(".nav-item").forEach(btn =>
+    btn.addEventListener("click", () => setFilter(btn.dataset.filter))
+  );
 }
 
 function renderArticleGrid({ articles }) {
@@ -147,6 +151,7 @@ function renderArticleGrid({ articles }) {
       <div class="article-card-badges">
         ${!a.is_read ? '<span class="dot-unread" title="읽지 않음"></span>' : ""}
         ${a.is_bookmarked ? '<span class="star-bookmarked" title="북마크">⭐</span>' : ""}
+        ${a.note ? '<span title="메모 있음" style="font-size:12px">📝</span>' : ""}
       </div>
       ${a.image_url ? `<img class="article-image" src="${esc(a.image_url)}" alt="" loading="lazy" onerror="this.remove()">` : ""}
       <div class="article-source-tag">${esc(a.source?.name ?? "")}</div>
@@ -209,8 +214,8 @@ function renderPagination({ page, total_pages }) {
 
 /* ─── Article detail ─────────────────────────────────────────────────── */
 function openArticle(id) {
-  const articles = document.querySelectorAll(`.article-card[data-id="${id}"]`);
-  const data = findArticleData(id);
+  // 캐시에서 완전한 기사 데이터 조회 (URL, 메모, 날짜 등 포함)
+  const data = state.articleCache.get(id);
   if (!data) return;
 
   state.currentArticleId = id;
@@ -218,8 +223,8 @@ function openArticle(id) {
   document.getElementById("detail-title").textContent = data.title;
   document.getElementById("detail-meta").innerHTML = `
     <span>📰 ${esc(data.source?.name ?? "")}</span>
-    <span>🕐 ${fmtDate(data.published_at || data.fetched_at)}</span>
     ${data.source?.category ? `<span>🏷 ${esc(data.source.category)}</span>` : ""}
+    <span>🕐 ${fmtDate(data.published_at || data.fetched_at) || "날짜 불명"}</span>
   `;
   document.getElementById("detail-summary").textContent = data.summary || "요약 없음";
   document.getElementById("detail-link").href = data.url;
@@ -229,35 +234,19 @@ function openArticle(id) {
   bmBtn.textContent = data.is_bookmarked ? "⭐ 북마크 해제" : "☆ 북마크";
 
   document.getElementById("modal-article").classList.remove("hidden");
+  document.getElementById("detail-note").focus();
+  document.getElementById("detail-note").blur();
 
-  // Mark as read
+  // 읽음 처리
   if (!data.is_read) {
+    data.is_read = true;  // 캐시 업데이트
     patchArticle(id, { is_read: true });
-    articles.forEach(c => c.classList.add("is-read"));
-    data.is_read = true;
+    const card = document.querySelector(`.article-card[data-id="${id}"]`);
+    if (card) {
+      card.classList.add("is-read");
+      card.querySelector(".dot-unread")?.remove();
+    }
   }
-}
-
-function findArticleData(id) {
-  const grid = document.getElementById("articles-grid");
-  const card = grid.querySelector(`.article-card[data-id="${id}"]`);
-  if (!card) return null;
-  // Reconstruct minimal data from DOM (enough for the modal)
-  return {
-    id,
-    title: card.querySelector(".article-title")?.textContent ?? "",
-    summary: card.querySelector(".article-summary")?.textContent ?? "",
-    url: "#",  // will be re-fetched or patched only
-    is_read: card.classList.contains("is-read"),
-    is_bookmarked: card.classList.contains("is-bookmarked"),
-    note: null,
-    source: {
-      name: card.querySelector(".article-source-tag")?.textContent ?? "",
-      category: null,
-    },
-    published_at: null,
-    fetched_at: null,
-  };
 }
 
 document.getElementById("btn-close-article").addEventListener("click", closeArticle);
@@ -271,11 +260,29 @@ function closeArticle() {
 document.getElementById("detail-bookmark").addEventListener("click", async () => {
   const id = state.currentArticleId;
   if (!id) return;
+  const data = state.articleCache.get(id);
+  if (!data) return;
+
+  const wasBookmarked = data.is_bookmarked;
+  data.is_bookmarked = !wasBookmarked;  // 캐시 업데이트
+  await patchArticle(id, { is_bookmarked: data.is_bookmarked });
+
+  // 카드 UI 동기화
   const card = document.querySelector(`.article-card[data-id="${id}"]`);
-  const wasBookmarked = card?.classList.contains("is-bookmarked");
-  await patchArticle(id, { is_bookmarked: !wasBookmarked });
-  card?.classList.toggle("is-bookmarked");
-  document.getElementById("detail-bookmark").textContent = wasBookmarked ? "☆ 북마크" : "⭐ 북마크 해제";
+  if (card) {
+    card.classList.toggle("is-bookmarked", data.is_bookmarked);
+    const badges = card.querySelector(".article-card-badges");
+    const starEl = badges?.querySelector(".star-bookmarked");
+    if (data.is_bookmarked && !starEl) {
+      badges?.insertAdjacentHTML("afterbegin", '<span class="star-bookmarked" title="북마크">⭐</span>');
+    } else if (!data.is_bookmarked && starEl) {
+      starEl.remove();
+    }
+    const quickBtn = card.querySelector(`[data-action="bookmark"]`);
+    if (quickBtn) quickBtn.textContent = data.is_bookmarked ? "⭐" : "☆";
+  }
+
+  document.getElementById("detail-bookmark").textContent = data.is_bookmarked ? "⭐ 북마크 해제" : "☆ 북마크";
   toast(wasBookmarked ? "북마크 해제됨" : "북마크 추가됨", "success");
   loadStats();
 });
@@ -284,6 +291,7 @@ document.getElementById("detail-hide").addEventListener("click", async () => {
   const id = state.currentArticleId;
   if (!id) return;
   await patchArticle(id, { is_hidden: true });
+  state.articleCache.delete(id);
   document.querySelector(`.article-card[data-id="${id}"]`)?.remove();
   closeArticle();
   toast("숨겼습니다");
@@ -293,31 +301,62 @@ document.getElementById("detail-hide").addEventListener("click", async () => {
 document.getElementById("btn-save-note").addEventListener("click", async () => {
   const id = state.currentArticleId;
   if (!id) return;
-  const note = document.getElementById("detail-note").value;
+  const note = document.getElementById("detail-note").value.trim();
   await patchArticle(id, { note });
+
+  // 캐시 및 카드 메모 아이콘 업데이트
+  const data = state.articleCache.get(id);
+  if (data) data.note = note;
+
+  const card = document.querySelector(`.article-card[data-id="${id}"]`);
+  if (card) {
+    const badges = card.querySelector(".article-card-badges");
+    const noteEl = badges?.querySelector("[title='메모 있음']");
+    if (note && !noteEl) {
+      badges?.insertAdjacentHTML("beforeend", '<span title="메모 있음" style="font-size:12px">📝</span>');
+    } else if (!note && noteEl) {
+      noteEl.remove();
+    }
+  }
+
   toast("메모 저장됨", "success");
 });
 
 /* ─── Quick actions ─────────────────────────────────────────────────── */
 async function quickAction(action, id) {
   const card = document.querySelector(`.article-card[data-id="${id}"]`);
+  const data = state.articleCache.get(id);
+
   if (action === "bookmark") {
-    const was = card.classList.contains("is-bookmarked");
+    const was = data?.is_bookmarked ?? card.classList.contains("is-bookmarked");
+    if (data) data.is_bookmarked = !was;
     await patchArticle(id, { is_bookmarked: !was });
     card.classList.toggle("is-bookmarked");
-    const btn = card.querySelector(`[data-action="bookmark"]`);
-    if (btn) btn.textContent = was ? "☆" : "⭐";
+    card.querySelector(`[data-action="bookmark"]`).textContent = was ? "☆" : "⭐";
+    // 북마크 배지 동기화
+    const badges = card.querySelector(".article-card-badges");
+    const starEl = badges?.querySelector(".star-bookmarked");
+    if (!was && !starEl) badges?.insertAdjacentHTML("afterbegin", '<span class="star-bookmarked" title="북마크">⭐</span>');
+    else if (was && starEl) starEl.remove();
     toast(was ? "북마크 해제" : "북마크 추가", "success");
     loadStats();
+
   } else if (action === "read") {
-    const was = card.classList.contains("is-read");
+    const was = data?.is_read ?? card.classList.contains("is-read");
+    if (data) data.is_read = !was;
     await patchArticle(id, { is_read: !was });
     card.classList.toggle("is-read");
-    const btn = card.querySelector(`[data-action="read"]`);
-    if (btn) btn.textContent = was ? "○" : "✓";
+    card.querySelector(`[data-action="read"]`).textContent = was ? "○" : "✓";
+    // 읽지않음 점 배지 동기화
+    const badges = card.querySelector(".article-card-badges");
+    const dotEl = badges?.querySelector(".dot-unread");
+    if (was && !dotEl) badges?.insertAdjacentHTML("afterbegin", '<span class="dot-unread" title="읽지 않음"></span>');
+    else if (!was && dotEl) dotEl.remove();
     loadStats();
+
   } else if (action === "hide") {
     await patchArticle(id, { is_hidden: true });
+    state.articleCache.delete(id);
     card.remove();
     toast("숨겼습니다");
     loadStats();
@@ -336,11 +375,9 @@ async function patchArticle(id, data) {
 function setFilter(filter) {
   state.filter = filter;
   state.page = 1;
-
   document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
-  const target = document.querySelector(`[data-filter="${filter}"]`);
+  const target = document.querySelector(`[data-filter="${CSS.escape(filter)}"]`);
   if (target) target.classList.add("active");
-
   loadArticles();
 }
 
@@ -366,6 +403,9 @@ document.getElementById("btn-mark-read").addEventListener("click", async () => {
   const qs = new URLSearchParams(params).toString();
   await api(`/api/articles/mark-all-read${qs ? "?" + qs : ""}`, { method: "POST" });
   toast("모두 읽음으로 표시했습니다", "success");
+
+  // 캐시 전체 읽음 처리
+  state.articleCache.forEach(a => { a.is_read = true; });
   loadArticles();
   loadStats();
 });
@@ -386,6 +426,22 @@ document.getElementById("btn-refresh").addEventListener("click", async () => {
     status.textContent = "오류 발생";
   } finally {
     btn.classList.remove("spinning");
+  }
+});
+
+/* ─── Keyboard shortcuts ────────────────────────────────────────────── */
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    if (!document.getElementById("modal-article").classList.contains("hidden")) {
+      closeArticle();
+    } else if (!document.getElementById("modal-admin").classList.contains("hidden")) {
+      document.getElementById("modal-admin").classList.add("hidden");
+    }
+  }
+  // "/" 키로 검색창 포커스
+  if (e.key === "/" && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA") {
+    e.preventDefault();
+    document.getElementById("search-input").focus();
   }
 });
 
@@ -456,6 +512,8 @@ function renderSourcesTable() {
       try {
         const res = await api(`/api/sources/${btn.dataset.id}/fetch`, { method: "POST" });
         toast(res.message, "success");
+        await loadSources();
+        renderSourcesTable();
         loadStats();
         loadArticles();
       } catch (e) {
@@ -481,8 +539,8 @@ function renderSourcesTable() {
   });
 }
 
-/* Add source */
-document.getElementById("btn-add-source").addEventListener("click", async () => {
+/* ─── Add source ────────────────────────────────────────────────────── */
+async function addSource() {
   const name = document.getElementById("new-source-name").value.trim();
   const url = document.getElementById("new-source-url").value.trim();
   const category = document.getElementById("new-source-category").value;
@@ -497,9 +555,18 @@ document.getElementById("btn-add-source").addEventListener("click", async () => 
   } catch (e) {
     toast(e.message, "error");
   }
+}
+
+document.getElementById("btn-add-source").addEventListener("click", addSource);
+
+// 소스 추가 폼에서 Enter 키 지원
+["new-source-name", "new-source-url"].forEach(id => {
+  document.getElementById(id).addEventListener("keydown", e => {
+    if (e.key === "Enter") addSource();
+  });
 });
 
-/* Fetch all from admin */
+/* ─── Fetch all from admin ──────────────────────────────────────────── */
 document.getElementById("btn-fetch-all").addEventListener("click", async () => {
   const btn = document.getElementById("btn-fetch-all");
   btn.disabled = true;
@@ -519,19 +586,18 @@ document.getElementById("btn-fetch-all").addEventListener("click", async () => {
   }
 });
 
-/* Cleanup */
+/* ─── Cleanup ───────────────────────────────────────────────────────── */
 document.getElementById("btn-cleanup").addEventListener("click", async () => {
   if (!confirm("북마크 제외, 30일 이상 된 기사를 모두 삭제할까요?")) return;
   const res = await api("/api/articles/cleanup?days=30", { method: "DELETE" });
   toast(res.message, "success");
+  state.articleCache.clear();
   loadStats();
   loadArticles();
 });
 
-/* ─── Auto-refresh every 5 min in browser ───────────────────────────── */
-setInterval(() => {
-  loadStats();
-}, 5 * 60 * 1000);
+/* ─── Auto-refresh stats every 5 min ───────────────────────────────── */
+setInterval(loadStats, 5 * 60 * 1000);
 
 /* ─── Init ──────────────────────────────────────────────────────────── */
 async function init() {

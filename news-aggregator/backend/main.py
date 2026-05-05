@@ -182,7 +182,7 @@ async def list_articles(
         result = await db.execute(select(Source.id).where(Source.category == category))
         source_ids = [r[0] for r in result.all()]
         if not source_ids:
-            return {"articles": [], "total": 0, "page": page, "per_page": per_page}
+            return {"articles": [], "total": 0, "page": page, "per_page": per_page, "total_pages": 1}
         conditions.append(Article.source_id.in_(source_ids))
 
     if source_id:
