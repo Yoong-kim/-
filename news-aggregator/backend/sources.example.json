@@ -1,0 +1,17 @@
+[
+  {
+    "name": "원하는 소스 이름",
+    "url": "https://example.com/rss.xml",
+    "category": "IT/기술"
+  },
+  {
+    "name": "조선일보",
+    "url": "https://www.chosun.com/arc/outboundfeeds/rss/",
+    "category": "종합"
+  },
+  {
+    "name": "TechCrunch",
+    "url": "https://techcrunch.com/feed/",
+    "category": "IT/기술"
+  }
+]
