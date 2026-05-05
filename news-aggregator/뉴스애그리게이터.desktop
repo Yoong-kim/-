@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=뉴스 애그리게이터
+Name[en]=News Aggregator
+Comment=RSS 뉴스 피드 수집기
+Comment[en]=RSS News Feed Aggregator
+Exec=bash /home/user/-/news-aggregator/run.sh
+Icon=applications-internet
+Terminal=true
+Categories=Network;News;
+Keywords=news;rss;feed;뉴스;
+StartupNotify=true
